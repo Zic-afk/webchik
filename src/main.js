@@ -66,7 +66,7 @@ loadEnvironment();
 async function start() {
   const loader = new GLTFLoader();
   loader.setMeshoptDecoder(MeshoptDecoder);
-  const model = (await loader.loadAsync('/girl.glb')).scene;
+  const model = (await loader.loadAsync('./girl.glb')).scene;
   if (disposed) return;
   sway.add(model);
   const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
