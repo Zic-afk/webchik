@@ -76,7 +76,7 @@ controls.dampingFactor = 0.06
 controls.enabled = false
 controls.enableRotate = false
 
-new GLTFLoader().load('/shoe.glb', ({ scene: model }) => {
+new GLTFLoader().load('./shoe.glb', ({ scene: model }) => {
   const box = new THREE.Box3().setFromObject(model)
   const center = box.getCenter(new THREE.Vector3())
   const size = box.getSize(new THREE.Vector3())
