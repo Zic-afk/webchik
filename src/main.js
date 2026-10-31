@@ -1,7 +1,8 @@
 import './style.css'
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js'
-import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/loaders/GLTFLoader.js'
-import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/controls/OrbitControls.js'
+import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { gsap } from 'https://cdn.jsdelivr.net/npm/gsap@3.13.0/index.js'
 import { ScrollTrigger } from 'https://cdn.jsdelivr.net/npm/gsap@3.13.0/ScrollTrigger.js'
 import Lenis from 'https://cdn.jsdelivr.net/npm/lenis@1.3.11/dist/lenis.mjs'
@@ -76,7 +77,12 @@ controls.dampingFactor = 0.06
 controls.enabled = false
 controls.enableRotate = false
 
-new GLTFLoader().load('./shoe.glb', ({ scene: model }) => {
+const dracoLoader = new DRACOLoader()
+dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/')
+
+const loader = new GLTFLoader()
+loader.setDRACOLoader(dracoLoader)
+loader.load('./shoe.glb', ({ scene: model }) => {
   const box = new THREE.Box3().setFromObject(model)
   const center = box.getCenter(new THREE.Vector3())
   const size = box.getSize(new THREE.Vector3())
