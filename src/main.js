@@ -1,15 +1,12 @@
 import './style.css'
-import * as THREE from 'three'
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { gsap } from 'https://cdn.jsdelivr.net/npm/gsap@3.13.0/index.js'
-import { ScrollTrigger } from 'https://cdn.jsdelivr.net/npm/gsap@3.13.0/ScrollTrigger.js'
-import Lenis from 'https://cdn.jsdelivr.net/npm/lenis@1.3.11/dist/lenis.mjs'
-
-gsap.registerPlugin(ScrollTrigger)
 
 document.querySelector('#app').innerHTML = `
+  <div class="preloader" role="status" aria-live="polite">
+    <div class="preloader-brand">NIKE<span>®</span></div>
+    <div class="preloader-status"><span class="preloader-label">Загрузка 0%</span><span class="preloader-value">00 / 100</span></div>
+    <div class="preloader-track"><span class="preloader-progress"></span></div>
+    <span class="preloader-caption">ПОДГОТАВЛИВАЕМ ТВОЙ СЛЕДУЮЩИЙ ШАГ</span>
+  </div>
   <canvas class="scene" aria-label="Интерактивная 3D-модель кроссовка Nike"></canvas>
   <header class="topbar"><a class="wordmark" href="#home" aria-label="Nike — на главную">NIKE<span>®</span></a><nav><a href="#story">История</a><a href="#contact">Контакты</a></nav><a class="menu-cta" href="#contact">Связаться <span>↗</span></a></header>
   <main>
@@ -44,68 +41,145 @@ document.querySelector('#app').innerHTML = `
   </main>
 `
 
+const [THREE, { GLTFLoader }, { DRACOLoader }, { gsap }, { ScrollTrigger }, { default: Lenis }] = await Promise.all([
+  import('three'),
+  import('three/addons/loaders/GLTFLoader.js'),
+  import('three/addons/loaders/DRACOLoader.js'),
+  import('https://cdn.jsdelivr.net/npm/gsap@3.13.0/index.js'),
+  import('https://cdn.jsdelivr.net/npm/gsap@3.13.0/ScrollTrigger.js'),
+  import('https://cdn.jsdelivr.net/npm/lenis@1.3.11/dist/lenis.mjs'),
+])
+gsap.registerPlugin(ScrollTrigger)
+
+const app = document.querySelector('#app')
 const canvas = document.querySelector('.scene')
-const scene = new THREE.Scene()
-scene.background = new THREE.Color('#242424')
-const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.1, 100)
-camera.position.set(0, 0.15, 7.3)
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false })
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-renderer.setSize(innerWidth, innerHeight)
-renderer.outputColorSpace = THREE.SRGBColorSpace
-renderer.toneMapping = THREE.ACESFilmicToneMapping
-renderer.toneMappingExposure = 0.9
-scene.add(new THREE.AmbientLight(0xffffff, 0.4))
-const keyLight = new THREE.DirectionalLight(0xffffff, 1.5)
-keyLight.position.set(-3, 5, 6)
-scene.add(keyLight)
-const rimLight = new THREE.DirectionalLight(0x9edcff, 0.7)
-rimLight.position.set(4, 2, -4)
-scene.add(rimLight)
+const loaderLabel = document.querySelector('.preloader-label')
+const loaderValue = document.querySelector('.preloader-value')
+const loaderProgress = document.querySelector('.preloader-progress')
 const sceneColors = {
   charcoal: new THREE.Color('#242424'),
   history: new THREE.Color('#15566c'),
   night: new THREE.Color('#111111'),
 }
+let scene = null
+let camera = null
+let renderer = null
+let storyColorTrigger = null
+let contactColorTrigger = null
 const shoe = new THREE.Group()
-scene.add(shoe)
-const controls = new OrbitControls(camera, canvas)
-controls.enableZoom = false
-controls.enablePan = false
-controls.enableDamping = true
-controls.dampingFactor = 0.06
-controls.enabled = false
-controls.enableRotate = false
 
-const dracoLoader = new DRACOLoader()
-dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/')
+function updateSceneBackground() {
+  if (!scene) return
+  if (contactColorTrigger?.progress > 0) {
+    scene.background.copy(sceneColors.history).lerp(sceneColors.night, contactColorTrigger.progress)
+  } else {
+    scene.background.copy(sceneColors.charcoal).lerp(sceneColors.history, storyColorTrigger?.progress ?? 0)
+  }
+}
 
-const loader = new GLTFLoader()
-loader.setDRACOLoader(dracoLoader)
-loader.load('./shoe.glb', ({ scene: model }) => {
+function optimizeTexture(texture) {
+  const image = texture.image
+  if (!image) return
+
+  const width = image.width || image.videoWidth || 0
+  const height = image.height || image.videoHeight || 0
+  if (!texture.isCompressedTexture && (width > 2048 || height > 2048)) {
+    const ratio = Math.min(2048 / width, 2048 / height)
+    const resized = document.createElement('canvas')
+    resized.width = Math.max(1, Math.round(width * ratio))
+    resized.height = Math.max(1, Math.round(height * ratio))
+    resized.getContext('2d').drawImage(image, 0, 0, resized.width, resized.height)
+    texture.image = resized
+  }
+
+  texture.minFilter = THREE.LinearFilter
+  texture.magFilter = THREE.LinearFilter
+  texture.generateMipmaps = false
+  texture.needsUpdate = true
+}
+
+function initializeScene(model) {
   const box = new THREE.Box3().setFromObject(model)
   const center = box.getCenter(new THREE.Vector3())
   const size = box.getSize(new THREE.Vector3())
   model.position.sub(center)
-  const scale = 3.25 / Math.max(size.x, size.y, size.z)
-  model.scale.setScalar(scale)
+  model.scale.setScalar(3.25 / Math.max(size.x, size.y, size.z))
   model.traverse((object) => {
     if (!object.isMesh) return
     const materials = Array.isArray(object.material) ? object.material : [object.material]
     for (const material of materials) {
       if ('envMapIntensity' in material) material.envMapIntensity = 0.5
+      for (const value of Object.values(material)) {
+        if (value?.isTexture) optimizeTexture(value)
+      }
       for (const textureName of ['map', 'emissiveMap', 'sheenColorMap', 'specularColorMap']) {
         const texture = material[textureName]
-        if (texture && texture.colorSpace !== THREE.SRGBColorSpace) {
-          texture.colorSpace = THREE.SRGBColorSpace
-          texture.needsUpdate = true
-        }
+        if (texture) texture.colorSpace = THREE.SRGBColorSpace
       }
     }
   })
+
+  scene = new THREE.Scene()
+  scene.background = sceneColors.charcoal.clone()
+  camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.1, 100)
+  camera.position.set(0, 0.15, innerWidth < 760 ? 8.4 : 7.3)
+  scene.add(new THREE.AmbientLight(0xffffff, 0.4))
+  const keyLight = new THREE.DirectionalLight(0xffffff, 1.5)
+  keyLight.position.set(-3, 5, 6)
+  scene.add(keyLight)
+  const rimLight = new THREE.DirectionalLight(0x9edcff, 0.7)
+  rimLight.position.set(4, 2, -4)
+  scene.add(rimLight)
   shoe.add(model)
-shoe.rotation.set(-0.12, 0, 0.08)
-}, undefined, (error) => console.error('Не удалось загрузить public/shoe.glb', error))
+  shoe.rotation.set(-0.12, 0, 0.08)
+  scene.add(shoe)
+  placeShoe()
+
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false })
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  renderer.setSize(innerWidth, innerHeight)
+  renderer.outputColorSpace = THREE.SRGBColorSpace
+  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.toneMappingExposure = 0.9
+  renderer.setAnimationLoop(() => {
+    if (canvas.style.opacity !== '0') renderer.render(scene, camera)
+  })
+
+  ScrollTrigger.refresh()
+  updateSceneBackground()
+  loaderLabel.textContent = 'Готово'
+  loaderValue.textContent = '100 / 100'
+  loaderProgress.style.width = '100%'
+  window.setTimeout(() => app.classList.add('is-loaded'), 500)
+}
+
+function updateProgress(event) {
+  if (event.total > 0) {
+    const percent = Math.min(99, Math.round((event.loaded / event.total) * 100))
+    loaderProgress.classList.remove('is-indeterminate')
+    loaderLabel.textContent = `Загрузка ${percent}%`
+    loaderValue.textContent = `${String(percent).padStart(2, '0')} / 100`
+    loaderProgress.style.width = `${percent}%`
+  } else {
+    const megabytes = (event.loaded / (1024 * 1024)).toFixed(1)
+    loaderLabel.textContent = `Загрузка ${megabytes} МБ`
+    loaderValue.textContent = '…'
+    loaderProgress.classList.add('is-indeterminate')
+  }
+}
+
+const dracoLoader = new DRACOLoader()
+dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/')
+const loader = new GLTFLoader()
+loader.setDRACOLoader(dracoLoader)
+loader.load('./shoe.glb', ({ scene: model }) => {
+  initializeScene(model)
+}, updateProgress, (error) => {
+  loaderLabel.textContent = 'Не удалось загрузить модель'
+  loaderValue.textContent = 'ОШИБКА'
+  loaderProgress.classList.add('has-error')
+  console.error('Не удалось загрузить public/shoe.glb', error)
+})
 
 const lenis = new Lenis({ duration: 1.15, smoothWheel: true, wheelMultiplier: 0.85 })
 lenis.on('scroll', ScrollTrigger.update)
@@ -120,17 +194,13 @@ gsap.to(shoe.scale, {
   x: 0.58, y: 0.58, z: 0.58,
   scrollTrigger: { trigger: document.body, endTrigger: '.story', start: 'top top', end: 'top center', scrub: 1 },
 })
-ScrollTrigger.create({
+storyColorTrigger = ScrollTrigger.create({
   trigger: '.story', start: 'top bottom', end: 'top top', scrub: 1,
-  onUpdate: (self) => {
-    scene.background.copy(sceneColors.charcoal).lerp(sceneColors.history, self.progress)
-  },
+  onUpdate: updateSceneBackground,
 })
-ScrollTrigger.create({
+contactColorTrigger = ScrollTrigger.create({
   trigger: '.contact', start: 'top bottom', end: 'top top', scrub: 1,
-  onUpdate: (self) => {
-    scene.background.copy(sceneColors.history).lerp(sceneColors.night, self.progress)
-  },
+  onUpdate: updateSceneBackground,
 })
 // Fade the 3D layer with the History scroll; the sneaker remains stationary underneath.
 gsap.to(canvas, {
@@ -152,12 +222,8 @@ gsap.to(canvas, {
   },
 })
 
-function animate() {
-  requestAnimationFrame(animate)
-  if (canvas.style.opacity !== '0') renderer.render(scene, camera)
-}
-animate()
 addEventListener('resize', () => {
+  if (!camera || !renderer) return
   camera.aspect = innerWidth / innerHeight
   camera.updateProjectionMatrix()
   renderer.setSize(innerWidth, innerHeight)
@@ -174,7 +240,7 @@ document.querySelector('.signup').addEventListener('submit', (event) => {
 function placeShoe() {
   const narrow = innerWidth < 760
   shoe.position.set(narrow ? 0.35 : 1.35, narrow ? -0.2 : 0.25, 0)
-  camera.position.z = narrow ? 8.4 : 7.3
+  if (camera) camera.position.z = narrow ? 8.4 : 7.3
 }
 placeShoe()
 addEventListener('resize', placeShoe)
