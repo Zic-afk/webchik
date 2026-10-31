@@ -3,8 +3,9 @@ import './style.css'
 document.querySelector('#app').innerHTML = `
   <div class="preloader" role="status" aria-live="polite">
     <div class="preloader-brand">NIKE<span>®</span></div>
-    <div class="preloader-status"><span class="preloader-label">Загрузка 0%</span><span class="preloader-value">00 / 100</span></div>
+    <div class="preloader-status"><span class="preloader-label">Загрузка: 0%</span><span class="preloader-value">00 / 100</span></div>
     <div class="preloader-track"><span class="preloader-progress"></span></div>
+    <span class="preloader-message">Проектируем скорость…</span>
     <span class="preloader-caption">ПОДГОТАВЛИВАЕМ ТВОЙ СЛЕДУЮЩИЙ ШАГ</span>
   </div>
   <canvas class="scene" aria-label="Интерактивная 3D-модель кроссовка Nike"></canvas>
@@ -41,6 +42,19 @@ document.querySelector('#app').innerHTML = `
   </main>
 `
 
+const preloaderMessages = [
+  'Проектируем скорость…',
+  'Готовим материалы…',
+  'Настраиваем амортизацию…',
+  'Проверяем каждый шаг…',
+]
+const preloaderMessage = document.querySelector('.preloader-message')
+let preloaderMessageIndex = 0
+const preloaderMessageTimer = window.setInterval(() => {
+  preloaderMessageIndex = (preloaderMessageIndex + 1) % preloaderMessages.length
+    preloaderMessage.textContent = preloaderMessages[preloaderMessageIndex]
+}, 1400)
+
 const [THREE, { GLTFLoader }, { DRACOLoader }, { gsap }, { ScrollTrigger }, { default: Lenis }] = await Promise.all([
   import('three'),
   import('three/addons/loaders/GLTFLoader.js'),
@@ -61,15 +75,29 @@ const sceneColors = {
   history: new THREE.Color('#15566c'),
   night: new THREE.Color('#111111'),
 }
-let scene = null
-let camera = null
-let renderer = null
+const scene = new THREE.Scene()
+scene.background = sceneColors.charcoal.clone()
+const camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.1, 100)
+camera.position.set(0, 0.15, innerWidth < 760 ? 8.4 : 7.3)
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false })
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+renderer.setSize(innerWidth, innerHeight)
+renderer.outputColorSpace = THREE.SRGBColorSpace
+renderer.toneMapping = THREE.ACESFilmicToneMapping
+renderer.toneMappingExposure = 0.9
+scene.add(new THREE.AmbientLight(0xffffff, 0.4))
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.5)
+keyLight.position.set(-3, 5, 6)
+scene.add(keyLight)
+const rimLight = new THREE.DirectionalLight(0x9edcff, 0.7)
+rimLight.position.set(4, 2, -4)
+scene.add(rimLight)
 let storyColorTrigger = null
 let contactColorTrigger = null
 const shoe = new THREE.Group()
+scene.add(shoe)
 
 function updateSceneBackground() {
-  if (!scene) return
   if (contactColorTrigger?.progress > 0) {
     scene.background.copy(sceneColors.history).lerp(sceneColors.night, contactColorTrigger.progress)
   } else {
@@ -118,51 +146,43 @@ function initializeScene(model) {
       }
     }
   })
-
-  scene = new THREE.Scene()
-  scene.background = sceneColors.charcoal.clone()
-  camera = new THREE.PerspectiveCamera(32, innerWidth / innerHeight, 0.1, 100)
-  camera.position.set(0, 0.15, innerWidth < 760 ? 8.4 : 7.3)
-  scene.add(new THREE.AmbientLight(0xffffff, 0.4))
-  const keyLight = new THREE.DirectionalLight(0xffffff, 1.5)
-  keyLight.position.set(-3, 5, 6)
-  scene.add(keyLight)
-  const rimLight = new THREE.DirectionalLight(0x9edcff, 0.7)
-  rimLight.position.set(4, 2, -4)
-  scene.add(rimLight)
   shoe.add(model)
   shoe.rotation.set(-0.12, 0, 0.08)
-  scene.add(shoe)
   placeShoe()
-
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-  renderer.setSize(innerWidth, innerHeight)
-  renderer.outputColorSpace = THREE.SRGBColorSpace
-  renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 0.9
   renderer.setAnimationLoop(() => {
-    if (canvas.style.opacity !== '0') renderer.render(scene, camera)
+    if (app.classList.contains('is-loaded') && canvas.style.opacity !== '0') renderer.render(scene, camera)
   })
-
-  ScrollTrigger.refresh()
   updateSceneBackground()
   loaderLabel.textContent = 'Готово'
   loaderValue.textContent = '100 / 100'
   loaderProgress.style.width = '100%'
-  window.setTimeout(() => app.classList.add('is-loaded'), 500)
+  startShoeScrollAnimations()
+  window.setTimeout(() => {
+    window.clearInterval(preloaderMessageTimer)
+    app.classList.add('is-loaded')
+    gsap.to(canvas, {
+      opacity: 1,
+      duration: 0.65,
+      ease: 'power2.out',
+      onComplete: () => {
+        startCanvasFadeTrigger()
+        ScrollTrigger.refresh()
+        updateSceneBackground()
+      },
+    })
+  }, 500)
 }
 
 function updateProgress(event) {
   if (event.total > 0) {
     const percent = Math.min(99, Math.round((event.loaded / event.total) * 100))
     loaderProgress.classList.remove('is-indeterminate')
-    loaderLabel.textContent = `Загрузка ${percent}%`
+    loaderLabel.textContent = `Загрузка: ${percent}%`
     loaderValue.textContent = `${String(percent).padStart(2, '0')} / 100`
     loaderProgress.style.width = `${percent}%`
   } else {
     const megabytes = (event.loaded / (1024 * 1024)).toFixed(1)
-    loaderLabel.textContent = `Загрузка ${megabytes} МБ`
+    loaderLabel.textContent = `Загрузка: ${megabytes} МБ`
     loaderValue.textContent = '…'
     loaderProgress.classList.add('is-indeterminate')
   }
@@ -175,6 +195,7 @@ loader.setDRACOLoader(dracoLoader)
 loader.load('./shoe.glb', ({ scene: model }) => {
   initializeScene(model)
 }, updateProgress, (error) => {
+  window.clearInterval(preloaderMessageTimer)
   loaderLabel.textContent = 'Не удалось загрузить модель'
   loaderValue.textContent = 'ОШИБКА'
   loaderProgress.classList.add('has-error')
@@ -186,14 +207,6 @@ lenis.on('scroll', ScrollTrigger.update)
 gsap.ticker.add((time) => lenis.raf(time * 1000))
 gsap.ticker.lagSmoothing(0)
 
-gsap.to(shoe.rotation, {
-  y: Math.PI * 2,
-  scrollTrigger: { trigger: document.body, endTrigger: '.story', start: 'top top', end: 'top center', scrub: 1 },
-})
-gsap.to(shoe.scale, {
-  x: 0.58, y: 0.58, z: 0.58,
-  scrollTrigger: { trigger: document.body, endTrigger: '.story', start: 'top top', end: 'top center', scrub: 1 },
-})
 storyColorTrigger = ScrollTrigger.create({
   trigger: '.story', start: 'top bottom', end: 'top top', scrub: 1,
   onUpdate: updateSceneBackground,
@@ -202,25 +215,32 @@ contactColorTrigger = ScrollTrigger.create({
   trigger: '.contact', start: 'top bottom', end: 'top top', scrub: 1,
   onUpdate: updateSceneBackground,
 })
-// Fade the 3D layer with the History scroll; the sneaker remains stationary underneath.
-gsap.to(canvas, {
-  opacity: 0,
-  ease: 'none',
-  scrollTrigger: {
-    trigger: '.story',
-    start: 'top bottom',
-    end: 'top center',
-    scrub: 1,
-    onEnter: () => {
-      canvas.style.willChange = 'opacity'
-      gsap.set(canvas, { opacity: 1 })
+
+function startShoeScrollAnimations() {
+  gsap.to(shoe.rotation, {
+    y: Math.PI * 2,
+    scrollTrigger: { trigger: document.body, endTrigger: '.story', start: 'top top', end: 'top center', scrub: 1 },
+  })
+  gsap.to(shoe.scale, {
+    x: 0.58, y: 0.58, z: 0.58,
+    scrollTrigger: { trigger: document.body, endTrigger: '.story', start: 'top top', end: 'top center', scrub: 1 },
+  })
+}
+
+function startCanvasFadeTrigger() {
+  gsap.to(canvas, {
+    opacity: 0,
+    ease: 'none',
+    scrollTrigger: {
+      trigger: '.story',
+      start: 'top bottom',
+      end: 'top center',
+      scrub: 1,
+      onEnter: () => { canvas.style.willChange = 'opacity' },
+      onLeaveBack: () => { canvas.style.willChange = 'auto' },
     },
-    onLeaveBack: () => {
-      gsap.set(canvas, { opacity: 1 })
-      canvas.style.willChange = 'auto'
-    },
-  },
-})
+  })
+}
 
 addEventListener('resize', () => {
   if (!camera || !renderer) return
